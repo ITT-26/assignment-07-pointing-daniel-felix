@@ -28,6 +28,29 @@ python pointing_input.py [camera_id]
 
 
 ## 2 Fitts’ Law Application
+[`fitts_law.py`](fitts_law.py) is a `pyglet` implementation of a **two-dimensional tapping task**. Successful clicks are logged automatically to `data/fitts_<num_targets>_<W>_<D>_<pid>.csv`. Because the task reacts to the OS cursor, it works with the mid-air pointing technique from task 1, a mouse, or a touchpad.
+
+```bash
+python fitts_law.py [--config fitts_config.json] [--pid N] [--num-targets N] [--width W] [--distance D] [--iterations N]
+```
+
+Parameters are read from [`fitts_config.json`](fitts_config.json), command-line argument overrides the config file.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--config` | Path to the JSON config file | `fitts_config.json` |
+| `--pid` | Participant ID, used in the log file name and every logged row | `1` |
+| `--num-targets` | Number of targets in the ring | `10` |
+| `--width` | Target diameter `W` in pixels | `60` |
+| `--distance` | Ring diameter `D` (movement amplitude) in pixels | `400` |
+| `--iterations` | Number of full rings to repeat | `3` |
+
+| Key / Action | Result |
+|--------------|--------|
+| Click the red target | Record acquisition and advance to the next target |
+| `R` | Restart the study |
+| `Q` / `Esc` | Quit |
+
 
 ## 3 Steering Law Application 
 

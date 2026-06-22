@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import threading
+from collections import deque
 
 os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
 
@@ -25,10 +26,12 @@ HAND_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 
                     (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17)]
 
 ACTIVE_LO, ACTIVE_HI = 0.20, 0.80  # only track hand when it within the central 60% of the camera frame
-PINCH_ON, PINCH_OFF = 0.25, 0.40  # mouse down below ON, up above OFF to prevent jitter
+PINCH_ON, PINCH_OFF = 0.25, 0.35  # mouse down below ON, up above OFF to prevent jitter
+LATCH_DELAY = 0.12  # lock click position to where the cursor was this long ago
+CLICK_FLASH_FRAMES = 6
 DISPLAY_W = 720
 
-# One Euro Filter: https://gery.casiez.net/1euro/
+# One Euro Filter for smoothing: https://gery.casiez.net/1euro/
 EURO_CONFIG = {"freq": 30, "mincutoff": 1.0, "beta": 0.01, "dcutoff": 1.0}
 
 
@@ -72,6 +75,12 @@ def dist(a, b):
     return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
 
+def screen_to_frame(mx, my, w, h):
+    fx = ACTIVE_LO + (mx / SCREEN_W) * (ACTIVE_HI - ACTIVE_LO)
+    fy = ACTIVE_LO + (my / SCREEN_H) * (ACTIVE_HI - ACTIVE_LO)
+    return int(fx * w), int(fy * h)
+
+
 # --------- Setup ----------
 options = vision.HandLandmarkerOptions(
     base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
@@ -92,6 +101,9 @@ cap = CameraThread(VIDEO_ID)
 filter_x = None
 filter_y = None
 pinching = False
+pos_history = deque(maxlen=60)
+click_pos = None  # screen position of the last click
+click_flash = 0
 last_ts = 0
 
 running = True
@@ -160,19 +172,40 @@ while running:
 
         hand_size = dist(lm[WRIST], lm[MIDDLE_MCP]) + 1e-6
         pinch = dist(lm[THUMB_TIP], lm[INDEX_TIP]) / hand_size  # normalize by hand size
+
+        mx = min(SCREEN_W - 1, max(0, int(px)))
+        my = min(SCREEN_H - 1, max(0, int(py)))
+        pos_history.append((now, mx, my))
+        if click_flash > 0:
+            click_flash -= 1
+
         if control_active:
-            mx = min(SCREEN_W - 1, max(0, int(px)))
-            my = min(SCREEN_H - 1, max(0, int(py)))
             mouse.position = (mx, my)
-            if not pinching and pinch < PINCH_ON:
+            if not pinching and pinch < PINCH_ON:  # pinch down -> click
+                lx, ly = mx, my
+                for t, hx, hy in reversed(pos_history):
+                    if t <= now - LATCH_DELAY:
+                        lx, ly = hx, hy
+                        break
+                mouse.position = (lx, ly)
                 mouse.click(Button.left)
+                mouse.position = (mx, my)
                 pinching = True
-            elif pinching and pinch > PINCH_OFF:
+                click_pos = (lx, ly)
+                click_flash = CLICK_FLASH_FRAMES
+            elif pinching and pinch > PINCH_OFF:  # release -> re-arm
                 pinching = False
 
-        cx, cy = int(ax * w), int(ay * h)
-        color = (0, 255, 0) if pinching else (90, 200, 255)
-        cv2.circle(frame, (cx, cy), 12, color, 2, cv2.LINE_AA)
+        if click_flash > 0 and click_pos is not None:
+            cx, cy = screen_to_frame(click_pos[0], click_pos[1], w, h)
+        else:
+            cx, cy = screen_to_frame(mx, my, w, h)
+        if click_flash > 0:
+            cv2.circle(frame, (cx, cy), 16, (0, 255, 0), -1, cv2.LINE_AA)  # click fired
+        elif pinching:
+            cv2.circle(frame, (cx, cy), 12, (0, 200, 255), 2, cv2.LINE_AA)
+        else:
+            cv2.circle(frame, (cx, cy), 12, (90, 200, 255), 2, cv2.LINE_AA)  # ready
         cv2.circle(frame, (cx, cy), 3, (0, 0, 255), -1, cv2.LINE_AA)
 
         if show_debug:
@@ -185,6 +218,7 @@ while running:
                         cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
     else:
         pinching = False
+        click_flash = 0
 
     # Display border of active region
     cv2.rectangle(frame, (int(ACTIVE_LO * w), int(ACTIVE_LO * h)),

@@ -1,0 +1,7 @@
+{
+    "pid": 1,
+    "num_targets": 10,
+    "target_w": 60,
+    "target_d": 400,
+    "iterations": 3
+}
