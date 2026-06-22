@@ -3,6 +3,7 @@ import json
 import math
 import time
 import argparse
+from collections import deque
 
 import pyglet
 import pyglet.shapes
@@ -40,6 +41,7 @@ DEFAULTS = {
     "tunnel_a": 500,     # tunnel length A in pixels (center-to-center of goal zones)
     "iterations": 5,     # number of full go-and-return traversals per trial
     "num_trials": 3,     # how many (W, A) conditions to run back-to-back
+    "latency_ms": 0,     # added artificial pointer latency in milliseconds
 }
 
 # Each traversal = cursor moves from left goal to right goal (or vice versa).
@@ -64,6 +66,8 @@ def load_config():
                         help=f"Go-and-return repetitions per trial (default: {DEFAULTS['iterations']}).")
     parser.add_argument("--num-trials", type=int, dest="num_trials",
                         help=f"Number of (W, A) conditions (default: {DEFAULTS['num_trials']}).")
+    parser.add_argument("--latency", type=int, dest="latency_ms",
+                        help=f"Artificial pointer latency in ms (default: {DEFAULTS['latency_ms']}).")
     args = parser.parse_args()
 
     cfg = dict(DEFAULTS)
@@ -72,18 +76,44 @@ def load_config():
             cfg.update(json.load(f))
 
     # command-line arguments override the config file
-    for key in ("pid", "tunnel_w", "tunnel_a", "iterations", "num_trials"):
+    for key in ("pid", "tunnel_w", "tunnel_a", "iterations", "num_trials", "latency_ms"):
         if getattr(args, key) is not None:
             cfg[key] = getattr(args, key)
 
     return cfg
 
 
+# ---------- Latency buffer ----------
+class LatencyBuffer:
+    """Delays (x, y) positions by a fixed number of milliseconds.
+
+    Call push(x, y) on every raw mouse event, then read .x and .y for the
+    delayed position.  When latency_ms == 0 the buffer is a no-op.
+    """
+    def __init__(self, latency_ms):
+        self.latency_ms = latency_ms
+        self._buf = deque()   # (timestamp_ms, x, y)
+        self.x = WINDOW_W // 2
+        self.y = WINDOW_H // 2
+
+    def push(self, x, y):
+        now = time.perf_counter() * 1000
+        self._buf.append((now, x, y))
+        if self.latency_ms == 0:
+            # Zero latency: always use the freshest position
+            self.x, self.y = x, y
+        else:
+            cutoff = now - self.latency_ms
+            while len(self._buf) > 1 and self._buf[1][0] <= cutoff:
+                self._buf.popleft()
+            _, self.x, self.y = self._buf[0]
+
+
 # ---------- data logging ----------
 class Logger:
     # One row per completed one-way traversal (half-crossing).
     HEADER = (
-        "trial,iteration,direction,pid,tunnel_w,tunnel_a,"
+        "trial,iteration,direction,pid,tunnel_w,tunnel_a,latency_ms,"
         "start_ts,end_ts,duration_ms,violations\n"
     )
 
@@ -106,7 +136,7 @@ class Logger:
         duration_ms = end_ts - start_ts
         self.file.write(
             f"{trial},{iteration},{direction},{c['pid']},"
-            f"{c['tunnel_w']},{c['tunnel_a']},"
+            f"{c['tunnel_w']},{c['tunnel_a']},{c['latency_ms']},"
             f"{start_ts},{end_ts},{duration_ms},{violations}\n"
         )
         self.file.flush()
@@ -144,10 +174,11 @@ class SteeringLawApp:
 
     GOAL_RADIUS = 18   # visual radius of the circular goal targets at each end
 
-    def __init__(self, window, cfg, logger):
+    def __init__(self, window, cfg, logger, latency_buf):
         self.window = window
         self.cfg = cfg
         self.logger = logger
+        self.latency_buf = latency_buf
         self.batch = pyglet.graphics.Batch()
 
         g_bg = pyglet.graphics.Group(order=0)
@@ -204,6 +235,11 @@ class SteeringLawApp:
             anchor_x="center", anchor_y="center",
             color=_rgba(APPLE_RED), batch=self.batch, group=g_text)
 
+        self.latency_lbl = pyglet.text.Label(
+            "", font_name=FONT, font_size=13,
+            x=WINDOW_W - 12, y=28, anchor_x="right", anchor_y="center",
+            color=_rgba(TEXT_GRAY), batch=self.batch, group=g_text)
+
         self.trial = 1
         self.restart()
 
@@ -214,6 +250,7 @@ class SteeringLawApp:
         self.active = False      # waiting for cursor to enter start goal
         self.done = False
         self.violations = 0
+        self._outside = False
         self.start_ts = None
         self._refresh()
 
@@ -239,6 +276,9 @@ class SteeringLawApp:
 
     # ------------------------------------------------------------------
     def _refresh(self):
+        lat = self.cfg["latency_ms"]
+        self.latency_lbl.text = f"latency {lat} ms" if lat > 0 else ""
+
         if self.done:
             self.goal_left.color = DONE_GOAL_COLOR
             self.goal_right.color = DONE_GOAL_COLOR
@@ -279,16 +319,19 @@ class SteeringLawApp:
 
     # ------------------------------------------------------------------
     def on_mouse_move(self, x, y):
-        self.cursor.x, self.cursor.y = x, y
+        self.latency_buf.push(x, y)
+        dx, dy = self.latency_buf.x, self.latency_buf.y
+        self.cursor.x, self.cursor.y = dx, dy
 
         if self.done:
             return
 
         if not self.active:
             # Wait for cursor to enter the start goal before timing begins
-            if self._in_goal(self._start_goal, x, y):
+            if self._in_goal(self._start_goal, dx, dy):
                 self.active = True
                 self.violations = 0
+                self._outside = False
                 self.start_ts = int(time.time() * 1000)
                 self._refresh()
             return
@@ -296,10 +339,10 @@ class SteeringLawApp:
         # --- Traversal in progress ---
 
         # Wall-crossing detection: cursor has left both the tunnel AND the goals
-        if not self._in_tunnel(x, y) and not self._in_goal(self._start_goal, x, y) \
-                and not self._in_goal(self._end_goal, x, y):
+        if not self._in_tunnel(dx, dy) and not self._in_goal(self._start_goal, dx, dy) \
+                and not self._in_goal(self._end_goal, dx, dy):
             # Only count one violation until cursor re-enters the tunnel
-            if not getattr(self, "_outside", False):
+            if not self._outside:
                 self.violations += 1
                 self._outside = True
                 self.violation_lbl.text = f"Wall hits: {self.violations}"
@@ -307,7 +350,7 @@ class SteeringLawApp:
             self._outside = False
 
         # Check arrival at end goal
-        if self._in_goal(self._end_goal, x, y):
+        if self._in_goal(self._end_goal, dx, dy):
             end_ts = int(time.time() * 1000)
             direction_str = "LR" if self.direction == self.LEFT_TO_RIGHT else "RL"
             self.logger.log(
@@ -340,6 +383,7 @@ class SteeringLawApp:
 def main():
     cfg = load_config()
     logger = Logger(cfg)
+    latency_buf = LatencyBuffer(cfg["latency_ms"])
 
     config = pyglet.gl.Config(sample_buffers=1, samples=4, double_buffer=True)
     try:
@@ -352,7 +396,7 @@ def main():
     pyglet.gl.glBlendFunc(pyglet.gl.GL_SRC_ALPHA, pyglet.gl.GL_ONE_MINUS_SRC_ALPHA)
     pyglet.gl.glEnable(pyglet.gl.GL_MULTISAMPLE)
 
-    app = SteeringLawApp(win, cfg, logger)
+    app = SteeringLawApp(win, cfg, logger, latency_buf)
 
     @win.event
     def on_draw():
