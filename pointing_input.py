@@ -27,7 +27,7 @@ HAND_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 
                     (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17)]
 
 ACTIVE_LO, ACTIVE_HI = 0.20, 0.80  # only track hand when it within the central 60% of the camera frame
-PINCH_ON, PINCH_OFF = 0.25, 0.35  # mouse down below ON, up above OFF to prevent jitter
+PINCH_ON, PINCH_OFF = 0.25, 0.30  # mouse down below ON, up above OFF to prevent jitter
 LATCH_DELAY = 0.12  # lock click position to where the cursor was this long ago
 CLICK_FLASH_FRAMES = 6
 DISPLAY_W = 720
@@ -56,6 +56,8 @@ class CameraThread:
             if ret:
                 with self.lock:
                     self.frame = frame
+            else:
+                time.sleep(0.005)  # no frame ready; yield instead of busy-spinning
 
     def read(self):
         with self.lock:
@@ -72,10 +74,12 @@ def remap(v, lo, hi):
     return min(1.0, max(0.0, (v - lo) / (hi - lo)))
 
 
-def dist(a, b):
+def dist(a, b, aspect=1.0):
+    # MediaPipe normalizes y by image height but x/z by width (https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)
+    # pass aspect=h/w to make axes isotropic
     return math.sqrt(
         (a.x - b.x) ** 2 +
-        (a.y - b.y) ** 2 +
+        ((a.y - b.y) * aspect) ** 2 +
         (a.z - b.z) ** 2
     )
 
@@ -146,9 +150,13 @@ threading.Thread(target=gui_loop, daemon=True).start()
 
 
 # ---------- Main loop ----------
+FRAME_INTERVAL = 1.0 / 30  # cap processing to ~30 FPS so the GUI/other apps get CPU time
+
 while running:
+    loop_start = time.time()
     frame = cap.read()
     if frame is None:
+        time.sleep(0.005)
         continue
     frame = cv2.flip(frame, 1)
     h, w = frame.shape[:2]
@@ -175,8 +183,14 @@ while running:
         px = filter_x(sx, now)
         py = filter_y(sy, now)
 
-        hand_size = dist(lm[WRIST], lm[MIDDLE_MCP]) + 1e-6
-        pinch = dist(lm[THUMB_TIP], lm[INDEX_TIP]) / hand_size  # normalize by hand size
+        aspect = h / w  # scale normalized y into the same units as x/z
+        hand_size = dist(lm[WRIST], lm[MIDDLE_MCP], aspect) + 1e-6
+        pinch = dist(lm[THUMB_TIP], lm[INDEX_TIP], aspect) / hand_size  # normalize by hand size
+
+        # Per-axis distance between thumb and index fingertips
+        dx = abs(lm[THUMB_TIP].x - lm[INDEX_TIP].x)
+        dy = abs(lm[THUMB_TIP].y - lm[INDEX_TIP].y) * aspect
+        dz = abs(lm[THUMB_TIP].z - lm[INDEX_TIP].z)
 
         mx = min(SCREEN_W - 1, max(0, int(px)))
         my = min(SCREEN_H - 1, max(0, int(py)))
@@ -221,6 +235,8 @@ while running:
                 cv2.circle(frame, p, 3, (0, 200, 255), -1, cv2.LINE_AA)
             cv2.putText(frame, f"pinch {pinch:.2f}", (10, 60),
                         cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, f"dx {dx:.3f}  dy {dy:.3f}  dz {dz:.3f}", (10, 90),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
     else:
         pinching = False
         click_flash = 0
@@ -235,5 +251,9 @@ while running:
 
     with display_lock:
         display_frame = cv2.resize(frame, (DISPLAY_W, int(DISPLAY_W * h / w)))
+
+    leftover = FRAME_INTERVAL - (time.time() - loop_start)
+    if leftover > 0:
+        time.sleep(leftover)
 
 cap.release()
