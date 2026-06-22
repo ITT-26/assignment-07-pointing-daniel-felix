@@ -38,6 +38,7 @@ DEFAULTS = {
     "target_d": 400,
     "iterations": 3,
     "latency_ms": 0,
+    "technique": "mouse",   # input device label: pose | mouse | touchpad
 }
 
 
@@ -67,6 +68,8 @@ def load_config():
                         help=f"Number of full rings to repeat (default: {DEFAULTS['iterations']}).")
     parser.add_argument("--latency", type=int, dest="latency_ms",
                         help=f"Artificial pointer latency in ms (default: {DEFAULTS['latency_ms']}).")
+    parser.add_argument("--technique", choices=("pose", "mouse", "touchpad"),
+                        help=f"Input device label  (default: {DEFAULTS['technique']}).")
     args = parser.parse_args()
 
     cfg = dict(DEFAULTS)
@@ -75,7 +78,7 @@ def load_config():
             cfg.update(json.load(f))
 
     # command-line arguments override the config file
-    for key in ("pid", "num_targets", "target_w", "target_d", "iterations", "latency_ms"):
+    for key in ("pid", "num_targets", "target_w", "target_d", "iterations", "latency_ms", "technique"):
         if getattr(args, key) is not None:
             cfg[key] = getattr(args, key)
 
@@ -108,14 +111,18 @@ class LatencyBuffer:
             _, self.x, self.y = self._buf[0]
 
 
-# ---------- data logging ----------
+# ---------- Data logging ----------
 class Logger:
-    HEADER = "iteration,pid,num_targets,target_w,target_d,latency_ms,target_id,timestamp\n"
+    # One row per click (hit or miss).
+    HEADER = (
+        "iteration,pid,technique,num_targets,target_w,target_d,latency_ms,"
+        "target_id,step,click_x,click_y,target_x,target_y,success,mt_ms,timestamp\n"
+    )
 
     def __init__(self, cfg):
         self.cfg = cfg
         os.makedirs(DATA_DIR, exist_ok=True)
-        base = f"fitts_{cfg['num_targets']}_{cfg['target_w']}_{cfg['target_d']}_{cfg['pid']}"
+        base = f"fitts_{cfg['technique']}_{cfg['num_targets']}_{cfg['target_w']}_{cfg['target_d']}_{cfg['pid']}"
         path = os.path.join(DATA_DIR, base + ".csv")
         # don't clobber existing data
         n = 1
@@ -127,12 +134,15 @@ class Logger:
         self.file.write(self.HEADER)
         self.file.flush()
 
-    def log(self, iteration, target_id):
+    def log(self, iteration, target_id, step, click_x, click_y,
+            target_x, target_y, success, mt_ms, ts):
         c = self.cfg
-        ts = int(time.time() * 1000)
-        self.file.write(f"{iteration},{c['pid']},{c['num_targets']},"
-                        f"{c['target_w']},{c['target_d']},{c['latency_ms']},"
-                        f"{target_id},{ts}\n")
+        self.file.write(
+            f"{iteration},{c['pid']},{c['technique']},{c['num_targets']},"
+            f"{c['target_w']},{c['target_d']},{c['latency_ms']},"
+            f"{target_id},{step},{click_x:.1f},{click_y:.1f},"
+            f"{target_x:.1f},{target_y:.1f},{success},{mt_ms},{ts}\n"
+        )
         self.file.flush()
 
     def close(self):
@@ -150,8 +160,9 @@ class FittsLawApp:
         self.batch = pyglet.graphics.Batch()
 
         g_target = pyglet.graphics.Group(order=1)
-        g_cursor = pyglet.graphics.Group(order=2)
-        g_text = pyglet.graphics.Group(order=3)
+        g_cursor_ring = pyglet.graphics.Group(order=2)
+        g_cursor = pyglet.graphics.Group(order=3)
+        g_text = pyglet.graphics.Group(order=4)
 
         self.n = cfg["num_targets"]
         self.radius = cfg["target_w"] / 2
@@ -171,8 +182,13 @@ class FittsLawApp:
                 color=IDLE_COLOR, batch=self.batch, group=g_target))
         print(f"Targets at: {[f'({t.x:.1f}, {t.y:.1f})' for t in self.targets]}")
 
+        # Cursor: green core with a light ring for contrast over the targets.
+        self.cursor_ring = pyglet.shapes.Circle(cx, cy, 11, segments=48, color=OFF_WHITE,
+                                                batch=self.batch, group=g_cursor_ring)
         self.cursor = pyglet.shapes.Circle(cx, cy, 8, segments=48, color=CURSOR_COLOR,
                                            batch=self.batch, group=g_cursor)
+
+        self.raw_x, self.raw_y = cx, cy
 
         self.info_lbl = pyglet.text.Label(
             "", font_name=FONT, font_size=14,
@@ -195,6 +211,7 @@ class FittsLawApp:
         self.iteration = 1
         self.step = 0
         self.done = False
+        self.trial_start_ts = int(time.time() * 1000)
         self._refresh()
 
     @property
@@ -220,25 +237,38 @@ class FittsLawApp:
                               f"W={c['target_w']} D={c['target_d']}")
 
     def on_mouse_move(self, x, y):
-        self.latency_buf.push(x, y)
-        self.cursor.x = self.latency_buf.x
-        self.cursor.y = self.latency_buf.y
+        self.raw_x, self.raw_y = x, y
+
+    def tick(self, dt):
+        self.latency_buf.push(self.raw_x, self.raw_y)
+        self.cursor.x = self.cursor_ring.x = self.latency_buf.x
+        self.cursor.y = self.cursor_ring.y = self.latency_buf.y
 
     def on_click(self, x, y):
         if self.done:
             return
         # clicks use the delayed position too
+        self.raw_x, self.raw_y = x, y
         self.latency_buf.push(x, y)
         dx, dy = self.latency_buf.x, self.latency_buf.y
         t = self.active_target
-        if (dx - t.x) ** 2 + (dy - t.y) ** 2 <= self.radius ** 2:
-            self.logger.log(self.iteration, self.step)
+        hit = math.hypot(dx - t.x, dy - t.y) <= self.radius
+        now = int(time.time() * 1000)
+
+        # Log every click, even misses, with all relevant info
+        self.logger.log(
+            self.iteration, self.order[self.step], self.step,
+            dx, dy, t.x, t.y, int(hit), now - self.trial_start_ts, now,
+        )
+
+        if hit:
             self.step += 1
             if self.step >= self.n:
                 self.step = 0
                 self.iteration += 1
                 if self.iteration > self.iterations:
                     self.done = True
+            self.trial_start_ts = now
             self._refresh()
 
     def draw(self):
@@ -260,7 +290,12 @@ def main():
     pyglet.gl.glBlendFunc(pyglet.gl.GL_SRC_ALPHA, pyglet.gl.GL_ONE_MINUS_SRC_ALPHA)
     pyglet.gl.glEnable(pyglet.gl.GL_MULTISAMPLE)
 
+    # Hide the OS cursor so only the (possibly delayed) in-app cursor is followed.
+    win.set_mouse_visible(False)
+
     app = FittsLawApp(win, cfg, logger, latency_buf)
+
+    pyglet.clock.schedule_interval(app.tick, 1 / 120.0)
 
     @win.event
     def on_draw():

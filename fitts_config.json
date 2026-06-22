@@ -3,5 +3,7 @@
     "num_targets": 10,
     "target_w": 60,
     "target_d": 400,
-    "iterations": 3
+    "iterations": 3,
+    "latency_ms": 0,
+    "technique": "mouse"
 }

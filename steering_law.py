@@ -39,13 +39,11 @@ DEFAULTS = {
     "pid": 1,
     "tunnel_w": 50,      # tunnel width W in pixels (wall-to-wall clearance)
     "tunnel_a": 500,     # tunnel length A in pixels (center-to-center of goal zones)
-    "iterations": 5,     # number of full go-and-return traversals per trial
-    "num_trials": 3,     # how many (W, A) conditions to run back-to-back
+    "iterations": 5,     # number of full go-and-return traversals
     "latency_ms": 0,     # added artificial pointer latency in milliseconds
+    "technique": "mouse",  # input device label: pose | mouse | touchpad
 }
 
-# Each traversal = cursor moves from left goal to right goal (or vice versa).
-# One "iteration" here = one full go-and-return (left→right, right→left).
 
 
 def _rgba(rgb, a=255):
@@ -63,11 +61,11 @@ def load_config():
     parser.add_argument("--amplitude", type=int, dest="tunnel_a",
                         help=f"Tunnel length A in pixels (default: {DEFAULTS['tunnel_a']}).")
     parser.add_argument("--iterations", type=int,
-                        help=f"Go-and-return repetitions per trial (default: {DEFAULTS['iterations']}).")
-    parser.add_argument("--num-trials", type=int, dest="num_trials",
-                        help=f"Number of (W, A) conditions (default: {DEFAULTS['num_trials']}).")
+                        help=f"Go-and-return repetitions (default: {DEFAULTS['iterations']}).")
     parser.add_argument("--latency", type=int, dest="latency_ms",
                         help=f"Artificial pointer latency in ms (default: {DEFAULTS['latency_ms']}).")
+    parser.add_argument("--technique", choices=("pose", "mouse", "touchpad"),
+                        help=f"Input device label (default: {DEFAULTS['technique']}).")
     args = parser.parse_args()
 
     cfg = dict(DEFAULTS)
@@ -76,7 +74,7 @@ def load_config():
             cfg.update(json.load(f))
 
     # command-line arguments override the config file
-    for key in ("pid", "tunnel_w", "tunnel_a", "iterations", "num_trials", "latency_ms"):
+    for key in ("pid", "tunnel_w", "tunnel_a", "iterations", "latency_ms", "technique"):
         if getattr(args, key) is not None:
             cfg[key] = getattr(args, key)
 
@@ -100,7 +98,6 @@ class LatencyBuffer:
         now = time.perf_counter() * 1000
         self._buf.append((now, x, y))
         if self.latency_ms == 0:
-            # Zero latency: always use the freshest position
             self.x, self.y = x, y
         else:
             cutoff = now - self.latency_ms
@@ -109,18 +106,18 @@ class LatencyBuffer:
             _, self.x, self.y = self._buf[0]
 
 
-# ---------- data logging ----------
+# ---------- Data logging ----------
 class Logger:
     # One row per completed one-way traversal (half-crossing).
     HEADER = (
-        "trial,iteration,direction,pid,tunnel_w,tunnel_a,latency_ms,"
+        "iteration,direction,pid,technique,tunnel_w,tunnel_a,latency_ms,"
         "start_ts,end_ts,duration_ms,violations\n"
     )
 
     def __init__(self, cfg):
         self.cfg = cfg
         os.makedirs(DATA_DIR, exist_ok=True)
-        base = f"steering_{cfg['tunnel_w']}_{cfg['tunnel_a']}_{cfg['pid']}"
+        base = f"steering_{cfg['technique']}_{cfg['tunnel_w']}_{cfg['tunnel_a']}_{cfg['pid']}"
         path = os.path.join(DATA_DIR, base + ".csv")
         n = 1
         while os.path.exists(path):
@@ -131,11 +128,11 @@ class Logger:
         self.file.write(self.HEADER)
         self.file.flush()
 
-    def log(self, trial, iteration, direction, start_ts, end_ts, violations):
+    def log(self, iteration, direction, start_ts, end_ts, violations):
         c = self.cfg
         duration_ms = end_ts - start_ts
         self.file.write(
-            f"{trial},{iteration},{direction},{c['pid']},"
+            f"{iteration},{direction},{c['pid']},{c['technique']},"
             f"{c['tunnel_w']},{c['tunnel_a']},{c['latency_ms']},"
             f"{start_ts},{end_ts},{duration_ms},{violations}\n"
         )
@@ -184,8 +181,9 @@ class SteeringLawApp:
         g_bg = pyglet.graphics.Group(order=0)
         g_tunnel = pyglet.graphics.Group(order=1)
         g_goals = pyglet.graphics.Group(order=2)
-        g_cursor = pyglet.graphics.Group(order=3)
-        g_text = pyglet.graphics.Group(order=4)
+        g_cursor_ring = pyglet.graphics.Group(order=3)
+        g_cursor = pyglet.graphics.Group(order=4)
+        g_text = pyglet.graphics.Group(order=5)
 
         cx, cy = WINDOW_W // 2, WINDOW_H // 2
         self.cx, self.cy = cx, cy
@@ -212,7 +210,10 @@ class SteeringLawApp:
             rx, cy, self.GOAL_RADIUS, segments=48,
             color=IDLE_WALL_COLOR, batch=self.batch, group=g_goals)
 
-        # Cursor
+        # Cursor: green core with a light ring for contrast over the targets.
+        self.cursor_ring = pyglet.shapes.Circle(
+            cx, cy, 10, segments=48,
+            color=OFF_WHITE, batch=self.batch, group=g_cursor_ring)
         self.cursor = pyglet.shapes.Circle(
             cx, cy, 7, segments=48,
             color=CURSOR_COLOR, batch=self.batch, group=g_cursor)
@@ -240,7 +241,7 @@ class SteeringLawApp:
             x=WINDOW_W - 12, y=28, anchor_x="right", anchor_y="center",
             color=_rgba(TEXT_GRAY), batch=self.batch, group=g_text)
 
-        self.trial = 1
+        self.raw_x, self.raw_y = cx, cy
         self.restart()
 
     # ------------------------------------------------------------------
@@ -269,7 +270,6 @@ class SteeringLawApp:
         return (x - goal.x) ** 2 + (y - goal.y) ** 2 <= self.GOAL_RADIUS ** 2
 
     def _in_tunnel(self, x, y):
-        """True when cursor is inside the tunnel corridor (between the two goals)."""
         in_x = self.lx <= x <= self.rx
         in_y = self.ty <= y <= self.by
         return in_x and in_y
@@ -311,32 +311,39 @@ class SteeringLawApp:
         c = self.cfg
         direction_str = "→" if self.direction == self.LEFT_TO_RIGHT else "←"
         self.info_lbl.text = (
-            f"PID {c['pid']}  ·  trial {self.trial}/{c['num_trials']}  "
-            f"·  iteration {self.iteration}/{c['iterations']}  {direction_str}  "
-            f"·  W={c['tunnel_w']} A={c['tunnel_a']}"
+            f"PID {c['pid']}  ·  iteration {self.iteration}/{c['iterations']}  "
+            f"{direction_str}  ·  W={c['tunnel_w']} A={c['tunnel_a']}"
         )
         self.violation_lbl.text = f"Wall hits: {self.violations}" if self.violations else ""
 
     # ------------------------------------------------------------------
     def on_mouse_move(self, x, y):
-        self.latency_buf.push(x, y)
+        self.raw_x, self.raw_y = x, y
+
+    def tick(self, dt):
+        self.latency_buf.push(self.raw_x, self.raw_y)
         dx, dy = self.latency_buf.x, self.latency_buf.y
         self.cursor.x, self.cursor.y = dx, dy
+        self.cursor_ring.x, self.cursor_ring.y = dx, dy
 
         if self.done:
             return
 
         if not self.active:
-            # Wait for cursor to enter the start goal before timing begins
+            # Arm once the cursor enters the start goal; timing starts only when
+            # it leaves (below), so start-zone dwell is not counted.
             if self._in_goal(self._start_goal, dx, dy):
                 self.active = True
                 self.violations = 0
                 self._outside = False
-                self.start_ts = int(time.time() * 1000)
+                self.start_ts = None
                 self._refresh()
             return
 
-        # --- Traversal in progress ---
+        if self.start_ts is None:
+            if self._in_goal(self._start_goal, dx, dy):
+                return
+            self.start_ts = int(time.time() * 1000)
 
         # Wall-crossing detection: cursor has left both the tunnel AND the goals
         if not self._in_tunnel(dx, dy) and not self._in_goal(self._start_goal, dx, dy) \
@@ -354,7 +361,7 @@ class SteeringLawApp:
             end_ts = int(time.time() * 1000)
             direction_str = "LR" if self.direction == self.LEFT_TO_RIGHT else "RL"
             self.logger.log(
-                self.trial, self.iteration, direction_str,
+                self.iteration, direction_str,
                 self.start_ts, end_ts, self.violations,
             )
 
@@ -363,7 +370,6 @@ class SteeringLawApp:
                 self.RIGHT_TO_LEFT if self.direction == self.LEFT_TO_RIGHT
                 else self.LEFT_TO_RIGHT
             )
-            self.active = False
             self._outside = False
 
             # Only increment iteration after both legs of a go-and-return
@@ -372,6 +378,13 @@ class SteeringLawApp:
                 if self.iteration > self.cfg["iterations"]:
                     self.done = True
 
+            if self.done:
+                self.active = False
+            else:
+                # Cursor is already in the next start goal: stay armed and let
+                # timing restart when it leaves (no "waiting to begin" flash).
+                self.violations = 0
+                self.start_ts = None
             self._refresh()
 
     # ------------------------------------------------------------------
@@ -396,7 +409,12 @@ def main():
     pyglet.gl.glBlendFunc(pyglet.gl.GL_SRC_ALPHA, pyglet.gl.GL_ONE_MINUS_SRC_ALPHA)
     pyglet.gl.glEnable(pyglet.gl.GL_MULTISAMPLE)
 
+    # Hide the OS cursor so only the (possibly delayed) in-app cursor is shown.
+    win.set_mouse_visible(False)
+
     app = SteeringLawApp(win, cfg, logger, latency_buf)
+
+    pyglet.clock.schedule_interval(app.tick, 1 / 120.0)
 
     @win.event
     def on_draw():
