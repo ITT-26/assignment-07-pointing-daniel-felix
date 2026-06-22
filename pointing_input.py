@@ -6,6 +6,7 @@ from collections import deque
 
 os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
 
+import math
 import cv2
 from pyglet.display import get_display
 import mediapipe as mp
@@ -72,7 +73,11 @@ def remap(v, lo, hi):
 
 
 def dist(a, b):
-    return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
+    return math.sqrt(
+        (a.x - b.x) ** 2 +
+        (a.y - b.y) ** 2 +
+        (a.z - b.z) ** 2
+    )
 
 
 def screen_to_frame(mx, my, w, h):
