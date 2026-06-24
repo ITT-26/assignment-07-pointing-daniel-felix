@@ -94,3 +94,12 @@ python steering_law.py --latency 150
 ```
 
 ## 5 Evaluating Input Techniques
+
+[`run_study.py`](run_study.py) runs a full session for one participant, launching every Fitts'/Steering run as a subprocess (40 runs: 4 techniques — pose, mouse, mouse + 150 ms, touchpad x 5 Fitts' + 5 Steering conditions, each `--iterations 3`).
+
+```bash
+python run_study.py --pid 3            # run participant 3
+python run_study.py --pid 3 --camera 1 # specify the camera for pose runs
+```
+
+The four techniques are ordered by a balanced Latin square (Williams design) keyed to `--pid`, so device-order effects cancel out across every four participants. The conditions within each technique are then shuffled reproducibly from `--pid`. Pose blocks start/stop [`pointing_input.py`](pointing_input.py) automatically. Per run: `Enter` start, `s` skip, `q` quit; after a run: `Enter` next, `r` redo, `q` quit.

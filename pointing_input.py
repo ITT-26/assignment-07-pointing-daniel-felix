@@ -6,6 +6,11 @@ from collections import deque
 
 os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
 
+# Silence MediaPipe / TFLite native logging (absl + glog). Must be set before
+# `import mediapipe` below. 2 = hide INFO and WARNING, keep ERROR/FATAL.
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+
 import math
 import cv2
 from pyglet.display import get_display
@@ -124,12 +129,19 @@ display_frame = None
 display_lock = threading.Lock()
 
 
+WINDOW_NAME = "pointing_input (m: control, d: skeleton, q: quit)"
+
+
 def gui_loop():
+    # Pin the preview to the top-left corner so the study windows (parked
+    # top-right) never overlap it.
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.moveWindow(WINDOW_NAME, 0, 0)
     while running:
         with display_lock:
             f = display_frame
         if f is not None:
-            cv2.imshow("pointing_input (m: control, d: skeleton, q: quit)", f)
+            cv2.imshow(WINDOW_NAME, f)
         cv2.waitKey(1)
     cv2.destroyAllWindows()
 

@@ -117,7 +117,7 @@ class Logger:
     def __init__(self, cfg):
         self.cfg = cfg
         os.makedirs(DATA_DIR, exist_ok=True)
-        base = f"steering_{cfg['technique']}_{cfg['tunnel_w']}_{cfg['tunnel_a']}_{cfg['pid']}"
+        base = f"steering_{cfg['technique']}_{cfg['tunnel_w']}_{cfg['tunnel_a']}_lat{cfg['latency_ms']}_{cfg['pid']}"
         path = os.path.join(DATA_DIR, base + ".csv")
         n = 1
         while os.path.exists(path):
@@ -400,9 +400,13 @@ def main():
 
     config = pyglet.gl.Config(sample_buffers=1, samples=4, double_buffer=True)
     try:
-        win = pyglet.window.Window(WINDOW_W, WINDOW_H, caption="Steering Law", resizable=False, config=config)
+        win = pyglet.window.Window(WINDOW_W, WINDOW_H, caption="Steering Law", resizable=False, config=config, visible=False)
     except pyglet.window.NoSuchConfigException:
-        win = pyglet.window.Window(WINDOW_W, WINDOW_H, caption="Steering Law", resizable=False)
+        win = pyglet.window.Window(WINDOW_W, WINDOW_H, caption="Steering Law", resizable=False, visible=False)
+    # Open window in the top right  and reveal it in place
+    win.set_location(win.screen.x + max(0, win.screen.width - WINDOW_W - 20), win.screen.y + 40)
+    win.set_visible(True)
+    win.activate()
 
     pyglet.gl.glClearColor(*BG_GL)
     pyglet.gl.glEnable(pyglet.gl.GL_BLEND)
