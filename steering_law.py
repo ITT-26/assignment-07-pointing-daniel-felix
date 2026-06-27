@@ -169,8 +169,6 @@ class SteeringLawApp:
     LEFT_TO_RIGHT = 0
     RIGHT_TO_LEFT = 1
 
-    GOAL_RADIUS = 18   # visual radius of the circular goal targets at each end
-
     def __init__(self, window, cfg, logger, latency_buf):
         self.window = window
         self.cfg = cfg
@@ -193,7 +191,7 @@ class SteeringLawApp:
         self.ty, self.by = ty, by
         self.half_w = hw
 
-        # Tunnel walls – two thin rectangles (top and bottom border)
+        # Tunnel walls
         wall_thickness = 3
         self.wall_top = pyglet.shapes.Rectangle(
             lx, ty - wall_thickness, cfg["tunnel_a"], wall_thickness,
@@ -202,12 +200,24 @@ class SteeringLawApp:
             lx, by, cfg["tunnel_a"], wall_thickness,
             color=IDLE_WALL_COLOR, batch=self.batch, group=g_tunnel)
 
-        # Left and right goal circles
-        self.goal_left = pyglet.shapes.Circle(
-            lx, cy, self.GOAL_RADIUS, segments=48,
+        # Tunnel goals
+        self.goal_h = cfg["tunnel_w"]
+        self.goal_w = self.goal_h * 3
+        
+        # Left goal's right edge touches the start of the tunnel (lx)
+        self.goal_left = pyglet.shapes.Rectangle(
+            x=lx - self.goal_w, 
+            y=cy - self.goal_h / 2,
+            width=self.goal_w, 
+            height=self.goal_h,
             color=GOAL_COLOR, batch=self.batch, group=g_goals)
-        self.goal_right = pyglet.shapes.Circle(
-            rx, cy, self.GOAL_RADIUS, segments=48,
+            
+        # Right goal's left edge touches the end of the tunnel (rx)
+        self.goal_right = pyglet.shapes.Rectangle(
+            x=rx, 
+            y=cy - self.goal_h / 2,
+            width=self.goal_w, 
+            height=self.goal_h,
             color=IDLE_WALL_COLOR, batch=self.batch, group=g_goals)
 
         # Cursor: green core with a light ring for contrast over the targets.
@@ -266,15 +276,13 @@ class SteeringLawApp:
         """The goal the cursor must arrive at."""
         return self.goal_right if self.direction == self.LEFT_TO_RIGHT else self.goal_left
 
+    # -------------------------------------------------------------
+    # GOAL COLLISION
     def _in_goal(self, goal, x, y):
-        return (x - goal.x) ** 2 + (y - goal.y) ** 2 <= self.GOAL_RADIUS ** 2
+        # A Pyglet Rectangle's coordinates are at its bottom left
+        return (goal.x <= x <= goal.x + goal.width) and \
+               (goal.y <= y <= goal.y + goal.height)
 
-    def _in_tunnel(self, x, y):
-        in_x = self.lx <= x <= self.rx
-        in_y = self.ty <= y <= self.by
-        return in_x and in_y
-
-    # ------------------------------------------------------------------
     def _refresh(self):
         lat = self.cfg["latency_ms"]
         self.latency_lbl.text = f"latency {lat} ms" if lat > 0 else ""
@@ -345,10 +353,9 @@ class SteeringLawApp:
                 return
             self.start_ts = int(time.time() * 1000)
 
-        # Wall-crossing detection: cursor has left both the tunnel AND the goals
-        if not self._in_tunnel(dx, dy) and not self._in_goal(self._start_goal, dx, dy) \
-                and not self._in_goal(self._end_goal, dx, dy):
-            # Only count one violation until cursor re-enters the tunnel
+        # WALL HIT LOGIC: Evaluates Y-axis bounds ONLY
+        if dy < self.ty or dy > self.by:
+            # Only count one violation until cursor re-enters the tunnel height
             if not self._outside:
                 self.violations += 1
                 self._outside = True
