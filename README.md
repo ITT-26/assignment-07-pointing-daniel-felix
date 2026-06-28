@@ -28,6 +28,8 @@ python pointing_input.py [camera_id]
 
 > Keys are read only while the camera preview window is focused (via `cv2.waitKey`), so they can't leak from another focused window and accidentally toggle or quit the tracker.
 
+![Pinch-to-click demo](assets/pinch_to_click.gif)
+
 
 ## 2 Fitts’ Law Application
 [`fitts_law.py`](fitts_law.py) is a `pyglet` implementation of a **two-dimensional tapping task**. **Every click (hit or miss)** is logged automatically to `data/fitts_<technique>_<num_targets>_<W>_<D>_<pid>.csv`, one row per click, so both movement time and error rate / endpoint scatter can be analysed. Because the task reacts to the OS cursor, it works with the mid-air pointing technique from task 1, a mouse, or a touchpad.
