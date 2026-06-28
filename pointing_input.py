@@ -17,7 +17,6 @@ from pyglet.display import get_display
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-from pynput import keyboard
 from pynput.mouse import Controller, Button
 from OneEuroFilter import OneEuroFilter
 
@@ -133,6 +132,7 @@ WINDOW_NAME = "pointing_input (m: control, d: skeleton, q: quit)"
 
 
 def gui_loop():
+    global running, show_debug, control_active, pinching
     # Pin the preview to the top-left corner so the study windows (parked
     # top-right) never overlap it.
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
@@ -142,22 +142,17 @@ def gui_loop():
             f = display_frame
         if f is not None:
             cv2.imshow(WINDOW_NAME, f)
-        cv2.waitKey(1)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):
+            running = False
+        elif key == ord("d"):  # toggle debug skeleton
+            show_debug = not show_debug
+        elif key == ord("m"):  # toggle mouse control
+            control_active = not control_active
+            pinching = False
     cv2.destroyAllWindows()
 
 
-def on_press(key):
-    global running, show_debug, control_active, pinching
-    if key == keyboard.KeyCode.from_char("q"):
-        running = False
-    elif key == keyboard.KeyCode.from_char("d"):  # toggle debug skeleton
-        show_debug = not show_debug
-    elif key == keyboard.KeyCode.from_char("m"):  # toggle mouse control
-        control_active = not control_active
-        pinching = False
-
-
-keyboard.Listener(on_press=on_press).start()
 threading.Thread(target=gui_loop, daemon=True).start()
 
 

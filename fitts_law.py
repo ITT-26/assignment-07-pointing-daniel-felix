@@ -289,6 +289,7 @@ def main():
     win.set_location(win.screen.x + max(0, win.screen.width - WINDOW_W - 20), win.screen.y + 40)
     win.set_visible(True)
     win.activate()
+    win.set_vsync(False)
     pyglet.gl.glClearColor(*BG_GL)
     pyglet.gl.glEnable(pyglet.gl.GL_BLEND)
     pyglet.gl.glBlendFunc(pyglet.gl.GL_SRC_ALPHA, pyglet.gl.GL_ONE_MINUS_SRC_ALPHA)

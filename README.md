@@ -26,6 +26,8 @@ python pointing_input.py [camera_id]
 | `D` | Toggle the hand skeleton and live pinch distance |
 | `Q` | Quit |
 
+> Keys are read only while the camera preview window is focused (via `cv2.waitKey`), so they can't leak from another focused window and accidentally toggle or quit the tracker.
+
 
 ## 2 Fitts’ Law Application
 [`fitts_law.py`](fitts_law.py) is a `pyglet` implementation of a **two-dimensional tapping task**. **Every click (hit or miss)** is logged automatically to `data/fitts_<technique>_<num_targets>_<W>_<D>_<pid>.csv`, one row per click, so both movement time and error rate / endpoint scatter can be analysed. Because the task reacts to the OS cursor, it works with the mid-air pointing technique from task 1, a mouse, or a touchpad.
@@ -103,3 +105,14 @@ python run_study.py --pid 3 --camera 1 # specify the camera for pose runs
 ```
 
 The four techniques are ordered by a balanced Latin square (Williams design) keyed to `--pid`, so device-order effects cancel out across every four participants. The conditions within each technique are then shuffled reproducibly from `--pid`. Pose blocks start/stop [`pointing_input.py`](pointing_input.py) automatically. Per run: `Enter` start, `s` skip, `q` quit; after a run: `Enter` next, `r` redo, `q` quit.
+
+
+### Problems encountered during the study runs
+
+The first teammate ran their session on Linux (PID 1) without issues. The problems below came up when the second teammate later ran their session on Windows (PID 2), and the corresponding fixes were added in response.
+
+- **Closing a task window also killed `pointing_input.py`.** Pressing **Q** to close a task window shut down the input script too, because it listened for keypresses globally and caught the **q** even when its window wasn't in focus. Fixed by reading the **q**/**m**/**d** keys directly from the camera preview window, so keypresses meant for other windows can't leak through.
+
+- **No way to resume after an interruption.** If the script stopped partway through, rerunning it would start over and overwrite the CSV files already recorded. *Fixed:* `run_study` now checks what data has already been captured and only runs the missing conditions, which let us resume PID 2 after `pointing_input.py` was accidentally closed at 20 runs without repeating anything.
+
+- **The study window flickered during pose blocks.** Under load, the screen refresh sometimes missed its timing and briefly showed a blank buffer. This appeared only on Windows (PID 2), not on Linux (PID 1). *Fixed:* turning off vsync in `fitts_law` and `steering_law`.

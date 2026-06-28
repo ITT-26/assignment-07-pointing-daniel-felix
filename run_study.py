@@ -6,6 +6,7 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
+DATA_DIR = os.path.join(HERE, "data")
 
 FITTS_NUM_TARGETS = 9
 FITTS_ITERATIONS = 3
@@ -51,6 +52,7 @@ def build_runs(label, technique, latency, pid):
     for w, d in fitts_conditions():
         runs.append({
             "desc": f"Fitts  W={w} D={d}",
+            "csv": f"fitts_{technique}_{FITTS_NUM_TARGETS}_{w}_{d}_lat{latency}_{pid}.csv",
             "cmd": [PY, os.path.join(HERE, "fitts_law.py"),
                     "--pid", str(pid), "--technique", technique,
                     "--num-targets", str(FITTS_NUM_TARGETS),
@@ -61,6 +63,7 @@ def build_runs(label, technique, latency, pid):
     for w, a in steering_conditions():
         runs.append({
             "desc": f"Steer  W={w} A={a}",
+            "csv": f"steering_{technique}_{w}_{a}_lat{latency}_{pid}.csv",
             "cmd": [PY, os.path.join(HERE, "steering_law.py"),
                     "--pid", str(pid), "--technique", technique,
                     "--width", str(w), "--amplitude", str(a),
@@ -68,6 +71,10 @@ def build_runs(label, technique, latency, pid):
                     "--latency", str(latency)],
         })
     return runs
+
+
+def is_captured(run):
+    return os.path.exists(os.path.join(DATA_DIR, run["csv"]))
 
 
 def build_plan(pid, rng):
@@ -96,25 +103,40 @@ def main():
     plan = build_plan(args.pid, rng)
     total = sum(len(runs) for _, _, runs in plan)
 
-    print(f"\n=== Task 5 study  -  participant {args.pid}  -  {total} runs ===")
+    captured = sum(is_captured(r) for _, _, runs in plan for r in runs)
+    print(f"\n=== Task 5 study  -  participant {args.pid}  -  "
+          f"{total} runs ({captured} already captured) ===")
     for label, uses_pose, runs in plan:
         tag = "  (pose tracking)" if uses_pose else ""
         print(f"\n[{label}]{tag}")
         for r in runs:
-            print(f"    {r['desc']}")
+            mark = "[x]" if is_captured(r) else "[ ]"
+            print(f"    {mark} {r['desc']}")
     if args.dry_run:
         print("\n(dry run -- nothing launched)\n")
         return
 
+    remaining_total = total - captured
+    if remaining_total == 0:
+        print("\nAll runs already captured -- nothing to do.\n")
+        return
+
     done = 0
     for label, uses_pose, runs in plan:
+        remaining = [r for r in runs if not is_captured(r)]
+        if not remaining:
+            print(f"\n========== BLOCK: {label} -- already complete, skipping ==========")
+            continue
         print(f"\n========== BLOCK: {label} ==========")
         pose_proc = None
+        pose_log = None
         if uses_pose:
             input("  Set up the participant for POSE pointing, then press Enter "
                   "to start the camera...")
+            pose_log = open(os.path.join(HERE, "pointing_input.log"), "w")
             pose_proc = subprocess.Popen(
-                [PY, os.path.join(HERE, "pointing_input.py"), str(args.camera)])
+                [PY, os.path.join(HERE, "pointing_input.py"), str(args.camera)],
+                stdout=pose_log, stderr=subprocess.STDOUT)
             input("  Wait until hand tracking controls the cursor, then press "
                   "Enter to begin this block...")
         else:
@@ -122,10 +144,10 @@ def main():
                   "Enter to begin this block...")
 
         try:
-            for r in runs:
+            for r in remaining:
                 done += 1
                 ans = input(
-                    f"\n[{done}/{total}] {label}  -  {r['desc']}  "
+                    f"\n[{done}/{remaining_total}] {label}  -  {r['desc']}  "
                     f"-- Enter=start / s=skip / q=quit: ").strip().lower()
                 if ans == "q":
                     print("Quitting.")
@@ -151,8 +173,11 @@ def main():
                     pose_proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     pose_proc.kill()
+            if pose_log:
+                pose_log.close()
 
-    print(f"\n=== Participant {args.pid} complete -- {done} runs. CSVs in data/ ===\n")
+    print(f"\n=== Participant {args.pid} complete -- {done} runs this session "
+          f"({total} total). CSVs in data/ ===\n")
 
 
 if __name__ == "__main__":

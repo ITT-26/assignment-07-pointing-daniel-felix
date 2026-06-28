@@ -7,6 +7,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Pose tracker log (captured stdout/stderr from run_study)
+pointing_input.log
+
 # IDE
 .vscode/
 
