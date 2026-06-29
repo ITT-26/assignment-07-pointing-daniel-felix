@@ -12,7 +12,7 @@
 
 
 ## 1. Pose-Based Pointing Technique
-[`pointing_input.py`](pointing_input.py) tracks hand movement using Google's [MediaPipe Hand Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker) and controls the cursor with `pynput`. The cursor follows the **midpoint between the thumb and index fingertips**, so pinching the two together barely shifts it. **Pinching** the thumb and index finger triggers a left click. To keep the cursor steady, the position is smoothed with the [One Euro Filter](https://doi.org/10.1145/2207676.2208639), which cuts jitter when the hand is still while staying responsive during quick movements.
+[`pointing_input.py`](pointing_input.py) tracks hand movement using Google's [MediaPipe Hand Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker) and controls the cursor with `pynput`. The cursor follows the **midpoint between the thumb and index fingertips**, so pinching the two together barely shifts it. **Pinching** the thumb and index finger triggers a left click. To keep the cursor steady, the position is smoothed with the [One Euro Filter](https://doi.org/10.1145/2207676.2208639), which cuts jitter when the hand is still while staying responsive during quick movements. Keys are read only while the camera preview window is focused (via `cv2.waitKey`), so they can't leak from another focused window and accidentally toggle or quit the tracker.
 
 ```bash
 python pointing_input.py [camera_id]
@@ -26,9 +26,10 @@ python pointing_input.py [camera_id]
 | `D` | Toggle the hand skeleton and live pinch distance |
 | `Q` | Quit |
 
-> Keys are read only while the camera preview window is focused (via `cv2.waitKey`), so they can't leak from another focused window and accidentally toggle or quit the tracker.
+
 
 ![Pinch-to-click demo](assets/pinch_to_click.gif)
+> For the most reliable click detection, hold your remaining fingers extended.
 
 
 ## 2 Fitts’ Law Application
@@ -99,21 +100,41 @@ python steering_law.py --latency 150
 
 ## 5 Evaluating Input Techniques
 
-[`run_study.py`](run_study.py) runs a full session for one participant, launching every Fitts'/Steering run as a subprocess (40 runs: 4 techniques — pose, mouse, mouse + 150 ms, touchpad x 5 Fitts' + 5 Steering conditions, each `--iterations 3`).
+[`run_study.py`](run_study.py) runs a full session for one participant: 40 runs launched as subprocesses. That is 4 techniques (pose, mouse, mouse + 150 ms, touchpad) × 5 Fitts' and 5 Steering conditions, each with `--iterations 3`.
 
 ```bash
 python run_study.py --pid 3            # run participant 3
 python run_study.py --pid 3 --camera 1 # specify the camera for pose runs
 ```
 
-The four techniques are ordered by a balanced Latin square (Williams design) keyed to `--pid`, so device-order effects cancel out across every four participants. The conditions within each technique are then shuffled reproducibly from `--pid`. Pose blocks start/stop [`pointing_input.py`](pointing_input.py) automatically. Per run: `Enter` start, `s` skip, `q` quit; after a run: `Enter` next, `r` redo, `q` quit.
+The script handles the run order automatically: the **technique order** follows a balanced Latin square (Williams design) keyed to `--pid` so device-order effects cancel across every four participants, the **condition order** within each technique is shuffled reproducibly from a fixed seed, and **pose blocks** start and stop [`pointing_input.py`](pointing_input.py) on their own. Controls are `Enter` to start, `s` to skip, and `q` to quit during a run, then `Enter`/`r`/`q` to continue, redo, or quit afterwards.
 
+### Study design
+
+The study is within-subjects: every participant completes every condition. We compare the four input techniques on two tasks. For Fitts' Law we vary target width `W` and distance `D`; for Steering Law we vary tunnel width `W` and amplitude `A`.
+
+To keep the session short, we change only one parameter at a time while holding the other fixed. The center value is shared by both sweeps, so 5 conditions are enough to cover 3 widths and 3 distances per law:
+
+| Law | Width sweep (distance fixed) | Distance sweep (width fixed) |
+|-----|------------------------------|------------------------------|
+| Fitts' (px) | `W` ∈ {40, **60**, 90}, `D` = 400 | `D` ∈ {250, **400**, 550}, `W` = 60 |
+| Steering (px) | `W` ∈ {60, **100**, 150}, `A` = 500 | `A` ∈ {350, **500**, 650}, `W` = 100 |
+
+Each condition is repeated 3 times per participant. We measure movement time and hit/miss rate for Fitts' Law (`mt_ms`, `success`) and traversal time and wall violations for Steering Law (`duration_ms`, `violations`).
+
+### Participants and apparatus
+
+Three people took part: the two of us (PID 1 and PID 2) and a friend from another course who isn't in ITT (PID 3). PID 2 and PID 3 used a Dell XPS 13 7390 2-in-1 with an external 27-inch 1440p screen, the laptop's built-in touchpad and webcam, and a Logitech M196 Bluetooth mouse at default Windows DPI.
+
+### Procedure
+
+Each participant first warmed up to get accustomed to pose tracking with one round of the [Human Benchmark Aim Trainer](https://humanbenchmark.com/tests/aim) (30 targets). They then worked through the full session in the order set by the script, free to pause between runs. A session lasted around 30 minutes.
 
 ### Problems encountered during the study runs
 
 The first teammate ran their session on Linux (PID 1) without issues. The problems below came up when the second teammate later ran their session on Windows (PID 2), and the corresponding fixes were added in response.
 
-- **Closing a task window also killed `pointing_input.py`.** Pressing **Q** to close a task window shut down the input script too, because it listened for keypresses globally and caught the **q** even when its window wasn't in focus. Fixed by reading the **q**/**m**/**d** keys directly from the camera preview window, so keypresses meant for other windows can't leak through.
+- **Closing a task window also killed `pointing_input.py`.** Pressing **Q** to close a task window shut down the input script too, because it listened for keypresses globally and caught the keypress even when its window wasn't in focus. Fixed by reading the **q**/**m**/**d** keys directly from the camera preview window, so keypresses meant for other windows can't leak through.
 
 - **No way to resume after an interruption.** If the script stopped partway through, rerunning it would start over and overwrite the CSV files already recorded. *Fixed:* `run_study` now checks what data has already been captured and only runs the missing conditions, which let us resume PID 2 after `pointing_input.py` was accidentally closed at 20 runs without repeating anything.
 
