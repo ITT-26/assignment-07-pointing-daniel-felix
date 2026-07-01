@@ -22,7 +22,7 @@ matplotlib.rcParams.update({
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 DATA_DIR   = os.path.join(PROJECT_ROOT, "data")
-RESULT_DIR = os.path.join(PROJECT_ROOT, "results")
+RESULT_DIR = os.path.join(PROJECT_ROOT, "assets")
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 TECHNIQUE_ORDER  = ["mouse", "touchpad", "mouse+150ms", "pose"]
@@ -401,7 +401,7 @@ def print_summary(fitts_df, steering_df):
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 
-print("\nGenerating plots → results/")
+print("\nGenerating plots → assets/")
 
 if not fitts.empty:
     plot_fitts_mt_bar(fitts)
