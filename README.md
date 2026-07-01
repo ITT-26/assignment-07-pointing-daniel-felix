@@ -126,7 +126,7 @@ Each condition is repeated 3 times per participant. We measure movement time and
 
 ### Participants and apparatus
 
-Three people took part: the two of us (PID 1 and PID 2) and a friend from another course who isn't in ITT (PID 3).  The blinds were shut and the overhead light turned on to keep side sunlight from interfering with the hand tracking.
+Four people took part: the two of us (PID 1 and PID 2) and a friends from outside te ITT course (PID 3 and PID 4).  The blinds were shut and the overhead light turned on to keep side sunlight from interfering with the hand tracking.
 
 | PID | OS | Machine | Screen | Mouse | Touchpad | Webcam |
 |-----|----|---------|--------|-------|----------|--------|
