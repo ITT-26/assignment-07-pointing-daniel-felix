@@ -221,10 +221,10 @@ Isolating the **Mouse** against **Mouse +150 ms** highlights the performance tol
 
 ---
 
-### Key Takeaways and Discussion
+### Key Takeaways
 
-1. **Hierarchy of Control:** Performance matches standard HCI expectations: $\text{Mouse} > \text{Touchpad} > \text{Latenced Mouse} \gg \text{Pose}$. 
+1. **Hierarchy of Control:** Performance matches standard HCI expectations: Mouse > Touchpad > Latenced Mouse \gg Pose. 
 2. **The "Midas Touch" and Pose Instability:** While the MediaPipe-driven vision solution provides highly accessible tracking, it is not yet viable for pixel-precise desktop interaction. The act of pinching fingers together introduces unavoidable spatial shifting at the exact moment of selection. This mechanical artifact accounts for the severe **28.8% Fitts' error rate**.
-3. **Adaptive User Strategies:** Humans are remarkably adept at adjusting to artificial systems. When subjected to the **150 ms latency** environment, users counteracted the lag by slowing down their trajectories and accepting a time penalty in order to keep target errors and wall violations under control.
+3. **Adaptive User Strategies:** Humans are remarkably adept at adjusting to artificial systems. When subjected to the **150 ms latency** environment, users counteracted the lag by slowing down and accepting a time penalty in order to keep target errors and wall violations under control.
 
 
