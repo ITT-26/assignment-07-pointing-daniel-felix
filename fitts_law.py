@@ -54,8 +54,8 @@ def crossing_order(n):
 
 def load_config():
     parser = argparse.ArgumentParser(description="Fitts' Law study application.")
-    parser.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "fitts_config.json"),
-                        help="Path to JSON config file (default: fitts_config.json).")
+    parser.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "config", "fitts_config.json"),
+                        help="Path to JSON config file (default: config/fitts_config.json).")
     parser.add_argument("--pid", type=int,
                         help=f"Participant ID (default: {DEFAULTS['pid']}).")
     parser.add_argument("--num-targets", type=int, dest="num_targets",

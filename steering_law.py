@@ -52,8 +52,8 @@ def _rgba(rgb, a=255):
 
 def load_config():
     parser = argparse.ArgumentParser(description="Steering Law study application.")
-    parser.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "steering_config.json"),
-                        help="Path to JSON config file (default: steering_config.json).")
+    parser.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "config", "steering_config.json"),
+                        help="Path to JSON config file (default: config/steering_config.json).")
     parser.add_argument("--pid", type=int,
                         help=f"Participant ID (default: {DEFAULTS['pid']}).")
     parser.add_argument("--width", type=int, dest="tunnel_w",

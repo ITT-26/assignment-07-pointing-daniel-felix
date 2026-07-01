@@ -38,14 +38,14 @@ python pointing_input.py [camera_id]
 Columns: study/config fields plus `target_id`, `step` (sequence position), `click_x`/`click_y` (click position), `target_x`/`target_y` (target center), `success` (1 = hit, 0 = miss), `mt_ms` (time since the previous successful click), `timestamp`.
 
 ```bash
-python fitts_law.py [--config fitts_config.json] [--pid N] [--num-targets N] [--width W] [--distance D] [--iterations N] [--latency MS] [--technique pose|mouse|touchpad]
+python fitts_law.py [--config config/fitts_config.json] [--pid N] [--num-targets N] [--width W] [--distance D] [--iterations N] [--latency MS] [--technique pose|mouse|touchpad]
 ```
 
-Parameters are read from [`fitts_config.json`](fitts_config.json), command-line argument overrides the config file.
+Parameters are read from [`config/fitts_config.json`](config/fitts_config.json), command-line argument overrides the config file.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--config` | Path to the JSON config file | `fitts_config.json` |
+| `--config` | Path to the JSON config file | `config/fitts_config.json` |
 | `--pid` | Participant ID, used in the log file name and every logged row | `1` |
 | `--num-targets` | Number of targets in the ring | `10` |
 | `--width` | Target diameter `W` in pixels | `60` |
@@ -68,14 +68,14 @@ Parameters are read from [`fitts_config.json`](fitts_config.json), command-line 
 Columns: study/config fields plus `direction` (`LR`/`RL`), `start_ts`/`end_ts`, `duration_ms` (movement time), and `violations` (times the cursor left the corridor). `violations = 0` is a clean pass; use the count as the accuracy measure alongside `duration_ms`.
 
 ```bash
-python steering_law.py [--config steering_config.json] [--pid N] [--width W] [--amplitude A] [--iterations N] [--latency MS] [--technique pose|mouse|touchpad]
+python steering_law.py [--config config/steering_config.json] [--pid N] [--width W] [--amplitude A] [--iterations N] [--latency MS] [--technique pose|mouse|touchpad]
 ```
 
-Parameters are read from [`steering_config.json`](steering_config.json); command-line arguments override the config file.
+Parameters are read from [`config/steering_config.json`](config/steering_config.json); command-line arguments override the config file.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--config` | Path to the JSON config file | `steering_config.json` |
+| `--config` | Path to the JSON config file | `config/steering_config.json` |
 | `--pid` | Participant ID, used in the log file name and every logged row | `1` |
 | `--width` | Tunnel width `W` (wall-to-wall clearance) in pixels | `50` |
 | `--amplitude` | Tunnel length `A` (goal-to-goal distance) in pixels | `500` |
@@ -109,7 +109,7 @@ python run_study.py --pid 3 --camera 1 # specify the camera for pose runs
 
 The script handles the run order automatically: the **technique order** follows a balanced Latin square (Williams design) keyed to `--pid` so device-order effects cancel across every four participants, the **condition order** within each technique is shuffled reproducibly from a fixed seed, and **pose blocks** start and stop [`pointing_input.py`](pointing_input.py) on their own. Controls are `Enter` to start, `s` to skip, and `q` to quit during a run, then `Enter`/`r`/`q` to continue, redo, or quit afterwards.
 
-The collected data (one CSV per run) is in [`data/`](data/), and all results, plots, and the per-technique comparison are in the analysis notebook: [`analysis.ipynb`](analysis.ipynb).
+The collected data (one CSV per run) is in [`data/`](data/); the analysis lives in [`analysis/`](analysis/) and is covered in the [Results](#results) section below.
 
 ### Study design
 
@@ -153,7 +153,9 @@ The first teammate ran their session on Linux (PID 1) largely without issues. Mo
 - **One empty recording (`fitts_mouse_10_60_400_lat0_1.csv`).** This run for PID 1 came out empty because it was overwritten when the script was restarted. We chose not to re-record it and left it out of the analysis.
 
 
-## 6 Results
+## Results
+
+Both of us created an analysis notebook independently: Felix's [`analysis/analysis_felix.ipynb`](analysis/analysis_felix.ipynb) and Daniel's [`analysis/analysis_daniel.py`](analysis/analysis_daniel.py). The following figures and text are from Daniel's analysis.
 
 ### Fitts’ Law
 
