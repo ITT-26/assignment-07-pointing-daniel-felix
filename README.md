@@ -6,7 +6,7 @@
 ## Setup
 1. Clone the repo and navigate to it via `cd assignment-07-pointing-daniel-felix`.
 2. Set up a virtual environment by running `python -m venv .venv`.
-3. Activate the virtual environment using `.venv\Scripts\activate` on Windows and `source .venv/bin/activate` on Linux/Mac.
+3. Activate the virtual environment using `.venv\Scripts\activate` on Windows or `source .venv/bin/activate` on Linux/Mac.
 4. Install the required dependencies via `pip install -r requirements.txt`.
 
 
@@ -109,6 +109,8 @@ python run_study.py --pid 3 --camera 1 # specify the camera for pose runs
 
 The script handles the run order automatically: the **technique order** follows a balanced Latin square (Williams design) keyed to `--pid` so device-order effects cancel across every four participants, the **condition order** within each technique is shuffled reproducibly from a fixed seed, and **pose blocks** start and stop [`pointing_input.py`](pointing_input.py) on their own. Controls are `Enter` to start, `s` to skip, and `q` to quit during a run, then `Enter`/`r`/`q` to continue, redo, or quit afterwards.
 
+The collected data (one CSV per run) is in [`data/`](data/), and all results, plots, and the per-technique comparison are in the analysis notebook: [`analysis.ipynb`](analysis.ipynb).
+
 ### Study design
 
 The study is within-subjects: every participant completes every condition. We compare the four input techniques on two tasks. For Fitts' Law we vary target width `W` and distance `D`; for Steering Law we vary tunnel width `W` and amplitude `A`.
@@ -124,7 +126,7 @@ Each condition is repeated 3 times per participant. We measure movement time and
 
 ### Participants and apparatus
 
-Three people took part: the two of us (PID 1 and PID 2) and a friend from another course who isn't in ITT (PID 3). PID 2 and PID 3 used a Dell XPS 13 7390 2-in-1 with an external 27-inch 1440p screen, the laptop's built-in touchpad and webcam, and a Logitech M196 Bluetooth mouse at default Windows DPI.
+Three people took part: the two of us (PID 1 and PID 2) and a friend from another course who isn't in ITT (PID 3). PID 2 and PID 3 used a Dell XPS 13 7390 2-in-1 with an external 27-inch 1440p screen, the laptop's built-in touchpad and webcam, and a Logitech M196 Bluetooth mouse at default Windows DPI. The blinds were shut and the overhead light turned on to keep side sunlight from interfering with the hand tracking.
 
 ### Procedure
 
@@ -132,10 +134,14 @@ Each participant first warmed up to get accustomed to pose tracking with one rou
 
 ### Problems encountered during the study runs
 
-The first teammate ran their session on Linux (PID 1) without issues. The problems below came up when the second teammate later ran their session on Windows (PID 2), and the corresponding fixes were added in response.
+The first teammate ran their session on Linux (PID 1) largely without issues. Most problems below came up when the second teammate later ran their session on Windows (PID 2), and the corresponding fixes were added in response; the last two are general observations we simply noted.
 
 - **Closing a task window also killed `pointing_input.py`.** Pressing **Q** to close a task window shut down the input script too, because it listened for keypresses globally and caught the keypress even when its window wasn't in focus. Fixed by reading the **q**/**m**/**d** keys directly from the camera preview window, so keypresses meant for other windows can't leak through.
 
 - **No way to resume after an interruption.** If the script stopped partway through, rerunning it would start over and overwrite the CSV files already recorded. *Fixed:* `run_study` now checks what data has already been captured and only runs the missing conditions, which let us resume PID 2 after `pointing_input.py` was accidentally closed at 20 runs without repeating anything.
 
 - **The study window flickered during pose blocks.** Under load, the screen refresh sometimes missed its timing and briefly showed a blank buffer. This appeared only on Windows (PID 2), not on Linux (PID 1). *Fixed:* turning off vsync in `fitts_law` and `steering_law`.
+
+- **Arm fatigue during pose runs.** Holding the arm up for the length of a pose block was tiring. Participants could rest their arm between runs.
+
+- **One empty recording (`fitts_mouse_10_60_400_lat0_1.csv`).** This run for PID 1 came out empty because it was overwritten when the script was restarted. We chose not to re-record it and left it out of the analysis.
